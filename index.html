@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solidity Lab Simulator - Lab 1</title>
+    <style>
+        :root {
+            --bg-deep: #0a0e27;
+            --bg-surface: #111633;
+            --bg-elevated: #1a1f4a;
+            --neon-cyan: #00d4ff;
+            --neon-purple: #7c3aed;
+            --neon-green: #10b981;
+            --neon-orange: #f59e0b;
+            --neon-red: #ef4444;
+            --text-main: #e2e8f0;
+            --font-code: 'Fira Code', 'Consolas', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            background-color: var(--bg-deep); 
+            color: var(--text-main); 
+            font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        canvas#bg-canvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; pointer-events: none;
+        }
+
+        /* Animations */
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes flashGreen {
+            0% { background: rgba(16, 185, 129, 0.2); }
+            100% { background: transparent; }
+        }
+
+        /* Layout */
+        #app { display: flex; flex-direction: column; height: 100vh; position: relative; z-index: 1; }
+        
+        #launcher {
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            height: 100vh; background: transparent;
+        }
+
+        .card {
+            background: rgba(17, 22, 51, 0.8); border: 1px solid var(--neon-purple); border-radius: 15px;
+            padding: 2rem; width: 450px; cursor: pointer; transition: 0.3s; position: relative;
+            backdrop-filter: blur(10px);
+        }
+        .card:hover { transform: translateY(-10px); border-color: var(--neon-cyan); box-shadow: 0 0 30px rgba(0, 212, 255, 0.3); }
+
+        .progress-container { width: 100%; height: 6px; background: #333; border-radius: 3px; margin-top: 15px; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--neon-cyan); transition: width 0.5s ease; }
+
+        #lab-header { 
+            height: 60px; background: rgba(17, 22, 51, 0.9); border-bottom: 1px solid #333; 
+            display: flex; align-items: center; padding: 0 20px; justify-content: space-between;
+        }
+
+        #lab-interface { display: none; grid-template-columns: 400px 1fr 380px; height: calc(100vh - 180px); }
+
+        /* Tabs */
+        .tab-container { display: flex; background: #05081a; border-bottom: 1px solid #333; }
+        .tab { padding: 10px 20px; cursor: pointer; font-size: 0.8rem; border-right: 1px solid #333; opacity: 0.6; display: flex; align-items: center; gap: 5px; }
+        .tab.active { background: var(--bg-elevated); opacity: 1; border-top: 2px solid var(--neon-cyan); }
+        .tab.completed::after { content: '✅'; font-size: 0.7rem; }
+
+        /* Editor */
+        .editor-section { display: flex; flex-direction: column; border-right: 1px solid #333; overflow: hidden; }
+        #code-editor { 
+            flex: 1; outline: none; padding: 20px; color: #d6deeb; font-family: var(--font-code); 
+            line-height: 1.6; white-space: pre; overflow: auto; background: rgba(1, 22, 39, 0.9);
+        }
+
+        /* Control Panel */
+        .control-panel { padding: 20px; background: rgba(17, 22, 51, 0.9); border-right: 1px solid #333; overflow-y: auto; }
+        select, .btn { width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 5px; border: 1px solid #444; background: #1a1f4a; color: white; cursor: pointer; transition: 0.2s; }
+        .btn:hover { filter: brightness(1.2); }
+        .btn-primary { background: var(--neon-purple); border: none; font-weight: bold; }
+        .btn-success { background: var(--neon-green); color: #000; border: none; font-weight: bold; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Interaction Panel */
+        .interaction-panel { padding: 20px; background: rgba(10, 14, 39, 0.9); overflow-y: auto; }
+        .contract-box { border: 1px solid #333; border-radius: 10px; padding: 15px; margin-top: 15px; background: var(--bg-surface); }
+        .func-group { margin-bottom: 15px; }
+        .func-label { font-size: 0.75rem; color: #888; margin-bottom: 4px; display: block; }
+        .btn-view { background: #2d3748; color: var(--neon-green); border: 1px solid var(--neon-green); width: auto; min-width: 80px; margin-bottom: 5px; padding: 6px 12px; }
+        .btn-act { background: #2d3748; color: var(--neon-orange); border: 1px solid var(--neon-orange); width: auto; min-width: 80px; margin-bottom: 5px; padding: 6px 12px; }
+        .func-res { font-size: 0.8rem; padding: 8px; color: #aaa; background: #000; border-radius: 4px; margin-top: 4px; border-left: 2px solid var(--neon-cyan); }
+        
+        /* Console */
+        #console-container { height: 120px; background: #000; border-top: 1px solid #333; display: flex; flex-direction: column; transition: height 0.3s; position: relative; }
+        #console-header { display: flex; justify-content: space-between; padding: 5px 15px; background: #111; font-size: 0.7rem; color: #888; align-items: center; cursor: pointer; }
+        #console { flex: 1; color: #0f0; font-family: var(--font-code); font-size: 0.75rem; padding: 10px; overflow-y: auto; }
+        .log-entry { margin-bottom: 4px; padding: 2px 0; border-bottom: 1px solid #111; }
+        .log-time { color: #555; margin-right: 8px; }
+
+        /* Toast Notification */
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+        .toast { 
+            padding: 12px 24px; border-radius: 8px; color: white; min-width: 250px; 
+            display: flex; align-items: center; gap: 12px; font-size: 0.9rem;
+            animation: slideIn 0.3s ease forwards; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .toast.success { background: #064e3b; border-left: 5px solid var(--neon-green); }
+        .toast.error { background: #7f1d1d; border-left: 5px solid var(--neon-red); }
+        .toast.info { background: #1e3a8a; border-left: 5px solid var(--neon-cyan); }
+        .toast.warning { background: #78350f; border-left: 5px solid var(--neon-orange); }
+
+        /* Comparison Table */
+        .comp-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.75rem; }
+        .comp-table th, .comp-table td { border: 1px solid #444; padding: 4px; text-align: center; }
+        .comp-table th { background: #1a1f4a; }
+
+        .hidden { display: none !important; }
+        #hint-box { margin-top: 15px; padding: 10px; background: #011627; border: 1px dashed #444; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div id="toast-container"></div>
+
+<div id="app">
+    <!-- 런처 -->
+    <section id="launcher">
+        <h1 style="color: var(--neon-cyan); margin-bottom: 10px; letter-spacing: 2px; text-shadow: 0 0 10px var(--neon-cyan);">SOLIDITY LAB SIMULATOR</h1>
+        <p style="color: #666; margin-bottom: 40px;">Blockchain Interactive Learning Environment</p>
+        
+        <div class="card" onclick="startLab()">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <div style="font-size: 0.8rem; color: var(--neon-orange);">Lab 1: 기초 ★☆☆ (~15분)</div>
+                <div id="total-progress-text" style="font-size: 0.75rem; color: var(--neon-cyan);">0/3 Labs Done</div>
+            </div>
+            <h2>HelloWorld & HelloNumber</h2>
+            <p style="font-size: 0.9rem; color: #aaa; margin-top: 10px;">스마트 컨트랙트의 기본 구조와 변수 가시성, 가상 VM의 작동 원리를 이해합니다.</p>
+            
+            <div class="progress-container">
+                <div class="progress-bar" id="total-progress-bar" style="width: 0%"></div>
+            </div>
+
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <span style="font-size: 0.7rem; background: #333; padding: 3px 8px; border-radius: 10px;">String</span>
+                <span style="font-size: 0.7rem; background: #333; padding: 3px 8px; border-radius: 10px;">Int</span>
+                <span style="font-size: 0.7rem; background: #333; padding: 3px 8px; border-radius: 10px;">Gas Simulation</span>
+            </div>
+        </div>
+        
+        <button onclick="resetAllProgress()" style="background: none; border: none; color: #444; cursor: pointer; margin-top: 30px; font-size: 0.8rem; text-decoration: underline;">진행률 초기화</button>
+        <p style="margin-top: 15px; color: #555; font-size: 0.8rem;">Press '1' to start, 'ESC' to return, 'Ctrl+/' for help</p>
+    </section>
+
+    <!-- 실습 헤더 -->
+    <header id="lab-header" class="hidden">
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div onclick="goHome()" style="cursor:pointer; color: var(--neon-cyan); font-weight: bold;">◀ EXIT</div>
+            <div style="font-weight: bold; border-left: 1px solid #444; padding-left: 20px; color: var(--text-main);">LAB 1 : HelloWorld & Number</div>
+        </div>
+        <div id="vm-status" style="font-size: 0.8rem; text-align: right;">
+            <span id="current-block" style="color: var(--neon-orange);">Block: #1</span> | 
+            <span id="gas-price" style="color: var(--neon-cyan);">Gas: 20 Gwei</span>
+        </div>
+    </header>
+
+    <!-- 메인 인터페이스 -->
+    <section id="lab-interface">
+        <!-- 좌측: 에디터 -->
+        <div class="editor-section">
+            <div class="tab-container" id="tab-list">
+                <div class="tab active" onclick="switchTab(0)">HelloWorld.sol</div>
+                <div class="tab" onclick="switchTab(1)">HelloExtended.sol</div>
+                <div class="tab" onclick="switchTab(2)">HelloNumber.sol</div>
+            </div>
+            <div id="code-editor" contenteditable="true" spellcheck="false"></div>
+        </div>
+
+        <!-- 중앙: 컨트롤 패널 -->
+        <div class="control-panel">
+            <div class="account-item">
+                <label class="func-label">ENVIRONMENT</label>
+                <select id="env-select"><option>StableNet JavaScript VM (London)</option></select>
+                
+                <label class="func-label">ACCOUNT</label>
+                <select id="account-select" onchange="updateAccountUI()"></select>
+                <div id="acc-balance" style="font-size: 1.1rem; color: var(--neon-green); font-weight: bold;">100.0000 ETH</div>
+            </div>
+
+            <button class="btn btn-primary" onclick="compile()">Compile (Ctrl+Enter)</button>
+            <button class="btn btn-success" id="deploy-btn" onclick="deploy()" disabled>Deploy (Ctrl+Shift+D)</button>
+
+            <div id="lab-guide" style="background: var(--bg-elevated); padding: 15px; border-radius: 8px; font-size: 0.85rem; line-height: 1.6; border-left: 3px solid var(--neon-orange);">
+                <h4 style="color: var(--neon-orange); margin-bottom: 8px; display: flex; justify-content: space-between;">
+                    <span>Step Guide</span>
+                    <span id="lab-completion-status">⚪</span>
+                </h4>
+                <div id="guide-content"></div>
+                
+                <!-- 도전과제 섹션 (탭 3 전용) -->
+                <div id="challenge-box" class="hidden">
+                    <hr style="margin: 15px 0; border: 0; border-top: 1px solid #444;">
+                    <h5 style="color: var(--neon-cyan);">🔥 도전과제: 가시성 변경</h5>
+                    <table class="comp-table">
+                        <thead><tr><th>특성</th><th>public</th><th>private</th></tr></thead>
+                        <tbody>
+                            <tr><td>외부 접근</td><td>가능</td><td>불가</td></tr>
+                            <tr><td>자동 getter</td><td>생성</td><td>미생성</td></tr>
+                            <tr><td>컨트랙트 내부</td><td>접근 가능</td><td>접근 가능</td></tr>
+                        </tbody>
+                    </table>
+                    <p style="font-size: 0.8rem; margin-bottom: 8px;"><code>number</code>를 <code>private</code>으로 바꾸고 직접 getter/setter를 만드세요.</p>
+                    <button class="btn" style="padding: 5px; font-size: 0.75rem;" onclick="toggleHint()">힌트 코드 보기/적용</button>
+                    <div id="hint-box" class="hidden">
+                        <pre style="font-size: 0.7rem; color: #888; overflow-x: auto;">
+int private _number = 10;
+function getNumber() public view returns (int) { return _number; }
+function setNumber(int n) public { _number = n; }</pre>
+                        <button class="btn btn-primary" style="margin-top:5px; padding:4px; font-size:0.7rem;" onclick="applyHint()">코드 자동 적용</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 우측: 인터랙션 패널 -->
+        <div class="interaction-panel">
+            <h3 style="font-size: 1rem; border-bottom: 1px solid #333; padding-bottom: 10px;">Deployed Contracts</h3>
+            <div id="contract-list">
+                <div style="color: #444; text-align: center; margin-top: 100px; font-size: 0.9rem;">
+                    컴파일 후 배포를 진행하세요.
+                </div>
+            </div>
+            
+            <div id="storage-visualizer" class="hidden" style="margin-top: 30px; border-top: 1px solid #333; pt-20">
+                <h4 style="font-size: 0.8rem; color: #888; margin-top: 15px;">Contract Storage (Live)</h4>
+                <div id="storage-items"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 콘솔 -->
+    <footer id="console-container">
+        <div id="console-header" onclick="toggleConsole()">
+            <span>TERMINAL & LOGS (Ctrl+`)</span>
+            <div>
+                <span id="log-stats">i: 0 | ✅: 0 | ❌: 0</span>
+                <span style="margin-left: 15px;">Clear [C]</span>
+            </div>
+        </div>
+        <div id="console"></div>
+    </footer>
+</div>
+
+<script>
+    // --- Blockchain Engine State ---
+    const VM = {
+        blockNumber: 1,
+        gasPrice: 20,
+        accounts: [
+            { address: '0x5B38Da6a701c568545dCfcB03FcB875f56beddC4', balance: 100, label: 'Account 1', nonce: 0 },
+            { address: '0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2', balance: 100, label: 'Account 2', nonce: 0 },
+            { address: '0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db', balance: 100, label: 'Account 3', nonce: 0 }
+        ],
+        currentAccountIdx: 0,
+        deployedContracts: [],
+        logStats: { info: 0, success: 0, error: 0 }
+    };
+
+    const LAB_DATA = [
+        {
+            name: "HelloWorld.sol",
+            code: `// SPDX-License-Identifier: MIT\npragma solidity ^0.8.26;\n\ncontract HelloWorld {\n    string public greet = "Hello World";\n}`,
+            guide: "1. <code>greet</code> 변수가 <code>public</code>인 것을 확인하세요.<br>2. <b>Compile</b> 후 <b>Deploy</b> 하세요.<br>3. 우측 <b>greet</b> 버튼을 눌러 값을 읽어오세요."
+        },
+        {
+            name: "HelloExtended.sol",
+            code: `// SPDX-License-Identifier: MIT\npragma solidity ^0.8.26;\n\ncontract HelloWorld {\n    string private _greeting = "Hello, World!";\n\n    function greet() public view returns (string memory) {\n        return _greeting;\n    }\n\n    function setGreeting(string memory newGreeting) public {\n        _greeting = newGreeting;\n    }\n}`,
+            guide: "1. <code>private</code> 변수는 버튼이 생기지 않습니다.<br>2. <b>greet()</b>으로 값을 확인하고, <b>setGreeting</b>으로 값을 변경해보세요.<br>3. 가스비 차감을 확인하세요."
+        },
+        {
+            name: "HelloNumber.sol",
+            code: `// SPDX-License-Identifier: MIT\npragma solidity ^0.8.26;\n\ncontract HelloNumber {\n    int public number = 10;\n}`,
+            guide: "1. 정수형(int) 데이터를 다룹니다.<br>2. 아래 <b>도전과제</b>를 수행하여 <code>private</code>의 캡슐화를 연습하세요."
+        }
+    ];
+
+    let currentTabIndex = 0;
+    let compiledContract = null;
+    let progress = JSON.parse(localStorage.getItem('sol_lab_progress') || '[false, false, false]');
+
+    // --- Background Particles ---
+    const canvas = document.getElementById('bg-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    let animationId;
+
+    function initParticles() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        particles = [];
+        for(let i=0; i<60; i++) {
+            particles.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2,
+                speedX: (Math.random() - 0.5) * 0.5,
+                speedY: (Math.random() - 0.5) * 0.5,
+                opacity: Math.random()
+            });
+        }
+    }
+
+    function drawParticles() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ffffff';
+        particles.forEach(p => {
+            ctx.globalAlpha = p.opacity;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            p.x += p.speedX;
+            p.y += p.speedY;
+            if(p.x < 0 || p.x > canvas.width) p.speedX *= -1;
+            if(p.y < 0 || p.y > canvas.height) p.speedY *= -1;
+        });
+        animationId = requestAnimationFrame(drawParticles);
+    }
+
+    window.addEventListener('resize', initParticles);
+    document.addEventListener('visibilitychange', () => {
+        if(document.hidden) cancelAnimationFrame(animationId);
+        else drawParticles();
+    });
+
+    // --- Core Logic ---
+    function init() {
+        initParticles();
+        drawParticles();
+        
+        const accSelect = document.getElementById('account-select');
+        VM.accounts.forEach((acc, idx) => {
+            accSelect.innerHTML += `<option value="${idx}">${acc.label} (${acc.address.substring(0,10)}...)</option>`;
+        });
+        
+        updateTotalProgressUI();
+        switchTab(0);
+        updateAccountUI();
+
+        // Keyboard Shortcuts
+        window.addEventListener('keydown', e => {
+            if(e.key === '1' && !document.getElementById('launcher').classList.contains('hidden')) startLab();
+            if(e.key === 'Escape') goHome();
+            if(e.ctrlKey && e.key === 'Enter') compile();
+            if(e.ctrlKey && e.shiftKey && e.key === 'D') deploy();
+            if(e.ctrlKey && e.key === '`') toggleConsole();
+            if(e.key === 'c' && document.activeElement.tagName !== 'DIV') clearConsole();
+            if(e.ctrlKey && e.key === '/') showHelp();
+        });
+
+        toast("시스템 로드 완료", "info");
+        log("Blockchain Engine Started. Chain ID: 1337", "info");
+    }
+
+    function startLab() {
+        document.getElementById('launcher').classList.add('hidden');
+        document.getElementById('lab-header').classList.remove('hidden');
+        document.getElementById('lab-interface').style.display = 'grid';
+        toast("실습 모드 시작", "success");
+    }
+
+    function goHome() {
+        document.getElementById('launcher').classList.remove('hidden');
+        document.getElementById('lab-header').classList.add('hidden');
+        document.getElementById('lab-interface').style.display = 'none';
+        updateTotalProgressUI();
+    }
+
+    function switchTab(idx) {
+        // Save current code to localStorage before switching
+        if(currentTabIndex !== undefined) {
+            const currentCode = document.getElementById('code-editor').innerText;
+            localStorage.setItem(`sol_code_${currentTabIndex}`, currentCode);
+        }
+
+        currentTabIndex = idx;
+        const tabs = document.querySelectorAll('.tab');
+        tabs.forEach((t, i) => {
+            i === idx ? t.classList.add('active') : t.classList.remove('active');
+            if(progress[i]) t.classList.add('completed');
+        });
+        
+        const savedCode = localStorage.getItem(`sol_code_${idx}`);
+        document.getElementById('code-editor').innerText = savedCode || LAB_DATA[idx].code;
+        document.getElementById('guide-content').innerHTML = LAB_DATA[idx].guide;
+        document.getElementById('deploy-btn').disabled = true;
+        
+        // Show/Hide Challenge
+        if(idx === 2) document.getElementById('challenge-box').classList.remove('hidden');
+        else document.getElementById('challenge-box').classList.add('hidden');
+
+        updateLabStatusUI();
+        compiledContract = null;
+        log(`Switched to ${LAB_DATA[idx].name}`, "info");
+    }
+
+    function updateAccountUI() {
+        const idx = document.getElementById('account-select').value;
+        VM.currentAccountIdx = idx;
+        const acc = VM.accounts[idx];
+        document.getElementById('acc-balance').innerText = `${acc.balance.toFixed(4)} ETH`;
+    }
+
+    function log(msg, type="info") {
+        const con = document.getElementById('console');
+        const colors = { info: "#00d4ff", error: "#ef4444", warn: "#f59e0b", success: "#10b981", tx: "#7c3aed" };
+        const icon = { info: "ℹ️", error: "❌", warn: "⚠️", success: "✅", tx: "🔶" };
+        
+        if(type !== 'tx') VM.logStats[type]++;
+        document.getElementById('log-stats').innerText = `i: ${VM.logStats.info} | ✅: ${VM.logStats.success} | ❌: ${VM.logStats.error}`;
+
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = `<span class="log-time">[${new Date().toLocaleTimeString()}]</span> <span style="color: ${colors[type]}">${icon[type] || ''} ${msg}</span>`;
+        con.appendChild(entry);
+        con.scrollTop = con.scrollHeight;
+    }
+
+    function toast(msg, type="info") {
+        const container = document.getElementById('toast-container');
+        const t = document.createElement('div');
+        t.className = `toast ${type}`;
+        const icons = { success: "✅", error: "❌", info: "ℹ️", warning: "⚠️" };
+        t.innerHTML = `<span>${icons[type]}</span><span>${msg}</span>`;
+        container.appendChild(t);
+        setTimeout(() => {
+            t.style.animation = "fadeOut 0.5s forwards";
+            setTimeout(() => t.remove(), 500);
+        }, 3000);
+    }
+
+    function compile() {
+        const code = document.getElementById('code-editor').innerText;
+        log("Compiling source code...", "info");
+        
+        const contractMatch = code.match(/contract (\w+)/);
+        if (!contractMatch) {
+            log("Compile Error: No contract found", "error");
+            toast("컴파일 실패: Contract 선언을 확인하세요", "error");
+            return;
+        }
+
+        const name = contractMatch[1];
+        const vars = [];
+        const funcs = [];
+
+        // Variable Parsing
+        const varRegex = /(string|int|uint256|bool)\s+(public|private)\s+(\w+)\s*=?\s*([^;]*);/g;
+        let v;
+        while ((v = varRegex.exec(code)) !== null) {
+            vars.push({ type: v[1], visibility: v[2], name: v[3], value: v[4].trim().replace(/"/g, '') });
+        }
+
+        // Function Parsing
+        const funcRegex = /function\s+(\w+)\s*\(([^)]*)\)\s+(public|external)\s*(view|pure|payable)?\s*(returns\s*\([^)]*\))?\s*{/g;
+        let f;
+        while ((f = funcRegex.exec(code)) !== null) {
+            funcs.push({ name: f[1], params: f[2], visibility: f[3], mutability: f[4] || 'nonpayable' });
+        }
+
+        compiledContract = { name, vars, funcs, raw: code };
+        document.getElementById('deploy-btn').disabled = false;
+        log(`${name} compiled successfully`, "success");
+        toast("컴파일 성공!", "success");
+    }
+
+    function deploy() {
+        if(!compiledContract) return;
+
+        const acc = VM.accounts[VM.currentAccountIdx];
+        const gasCost = 0.0025; 
+        
+        if(acc.balance < gasCost) {
+            log("Insufficient funds for deployment", "error");
+            toast("잔액 부족", "error");
+            return;
+        }
+
+        acc.balance -= gasCost;
+        VM.blockNumber++;
+        updateAccountUI();
+        document.getElementById('current-block').innerText = `Block: #${VM.blockNumber}`;
+
+        const instance = {
+            id: Date.now(),
+            address: '0x' + Math.random().toString(16).substr(2, 40),
+            ...compiledContract,
+            storage: {}
+        };
+
+        instance.vars.forEach(v => {
+            instance.storage[v.name] = v.value;
+        });
+
+        VM.deployedContracts.unshift(instance);
+        renderContracts();
+        log(`Contract deployed at ${instance.address}`, "tx");
+        toast("컨트랙트 배포 완료", "success");
+    }
+
+    function renderContracts() {
+        const list = document.getElementById('contract-list');
+        list.innerHTML = '';
+
+        VM.deployedContracts.forEach((c, cIdx) => {
+            let html = `<div class="contract-box">
+                <div style="font-size: 0.7rem; color: #666; margin-bottom: 8px; display:flex; justify-content:space-between;">
+                    <span>${c.name} (${c.address.substring(0,8)}...)</span>
+                    <span onclick="removeContract(${cIdx})" style="cursor:pointer">✖</span>
+                </div>`;
+            
+            c.vars.filter(v => v.visibility === 'public').forEach(v => {
+                html += `<div class="func-group">
+                    <button class="btn btn-view" onclick="callGetter(${cIdx}, '${v.name}')">${v.name}</button>
+                    <div id="res-${c.id}-${v.name}" class="func-res hidden"></div>
+                </div>`;
+            });
+
+            c.funcs.forEach(f => {
+                const isView = f.mutability === 'view' || f.mutability === 'pure';
+                const btnClass = isView ? 'btn-view' : 'btn-act';
+                const input = f.params ? `<input type="text" id="in-${c.id}-${f.name}" placeholder="${f.params}" style="width:100%; background:#000; color:#fff; border:1px solid #444; padding:6px; margin-top:2px; border-radius:4px;">` : '';
+                
+                html += `<div class="func-group">
+                    <button class="btn ${btnClass}" onclick="executeFunc(${cIdx}, '${f.name}', ${isView})">${f.name}</button>
+                    ${input}
+                    <div id="res-${c.id}-${f.name}" class="func-res hidden"></div>
+                </div>`;
+            });
+            html += `</div>`;
+            list.innerHTML += html;
+        });
+
+        updateStorageUI();
+    }
+
+    function removeContract(idx) {
+        VM.deployedContracts.splice(idx, 1);
+        renderContracts();
+        log("Contract instance removed", "info");
+    }
+
+    function updateStorageUI() {
+        if(VM.deployedContracts.length === 0) {
+            document.getElementById('storage-visualizer').classList.add('hidden');
+            return;
+        }
+        document.getElementById('storage-visualizer').classList.remove('hidden');
+        const storeItems = document.getElementById('storage-items');
+        storeItems.innerHTML = '';
+        const latest = VM.deployedContracts[0];
+        latest.vars.forEach(v => {
+            storeItems.innerHTML += `<div style="font-size: 0.85rem; margin-bottom:6px; padding: 4px; border-radius: 4px;" id="st-row-${v.name}">
+                <span style="color: var(--neon-cyan)">${v.name}</span>: 
+                <span id="st-val-${v.name}" style="color: #fff">${latest.storage[v.name] || '0'}</span> 
+                <small style="color:#555; margin-left:5px;">[${v.type}]</small>
+            </div>`;
+        });
+    }
+
+    window.callGetter = function(cIdx, varName) {
+        const c = VM.deployedContracts[cIdx];
+        const resDiv = document.getElementById(`res-${c.id}-${varName}`);
+        resDiv.innerText = `${c.storage[varName]}`;
+        resDiv.classList.remove('hidden');
+        log(`Call to ${c.name}.${varName}: ${c.storage[varName]}`, "info");
+        markProgress(currentTabIndex);
+    };
+
+    window.executeFunc = function(cIdx, fName, isView) {
+        const c = VM.deployedContracts[cIdx];
+        const acc = VM.accounts[VM.currentAccountIdx];
+        const resDiv = document.getElementById(`res-${c.id}-${fName}`);
+        const inputVal = document.getElementById(`in-${c.id}-${fName}`)?.value;
+
+        if(!isView) {
+            const gas = 0.0004 + (Math.random() * 0.0003);
+            if(acc.balance < gas) { log("Out of gas!", "error"); toast("가스 부족", "error"); return; }
+            acc.balance -= gas;
+            VM.blockNumber++;
+            updateAccountUI();
+            document.getElementById('current-block').innerText = `Block: #${VM.blockNumber}`;
+            
+            // Simulation logic: Find a variable to update
+            const targetVar = c.vars.find(v => fName.toLowerCase().includes(v.name.toLowerCase().replace('_','')));
+            if(targetVar && inputVal !== undefined) {
+                c.storage[targetVar.name] = inputVal;
+                const valSpan = document.getElementById(`st-val-${targetVar.name}`);
+                if(valSpan) {
+                    valSpan.innerText = inputVal;
+                    document.getElementById(`st-row-${targetVar.name}`).style.animation = "flashGreen 1s";
+                }
+            }
+            log(`Transaction: ${fName}(${inputVal || ''}) | Gas: ${Math.floor(gas*1e8)}`, "tx");
+            resDiv.innerText = "Tx Confirmed ✅";
+        } else {
+            let result = "void";
+            const targetVar = c.vars.find(v => fName.toLowerCase().includes(v.name.toLowerCase().replace('_','')));
+            if(targetVar) result = c.storage[targetVar.name];
+            resDiv.innerText = `Result: ${result}`;
+            log(`Static Call: ${fName} -> ${result}`, "info");
+        }
+        resDiv.classList.remove('hidden');
+        markProgress(currentTabIndex);
+    };
+
+    // --- Progression ---
+    function markProgress(idx) {
+        if(!progress[idx]) {
+            progress[idx] = true;
+            localStorage.setItem('sol_lab_progress', JSON.stringify(progress));
+            updateLabStatusUI();
+            const tab = document.querySelectorAll('.tab')[idx];
+            tab.classList.add('completed');
+            toast("Lab Step 완료!", "success");
+        }
+    }
+
+    function updateLabStatusUI() {
+        const status = document.getElementById('lab-completion-status');
+        status.innerText = progress[currentTabIndex] ? '✅' : '⚪';
+    }
+
+    function updateTotalProgressUI() {
+        const count = progress.filter(p => p).length;
+        const percent = (count / 3) * 100;
+        document.getElementById('total-progress-bar').style.width = `${percent}%`;
+        document.getElementById('total-progress-text').innerText = `${count}/3 Labs Done`;
+    }
+
+    function resetAllProgress() {
+        if(confirm("모든 진행률과 코드를 초기화하시겠습니까?")) {
+            progress = [false, false, false];
+            localStorage.clear();
+            location.reload();
+        }
+    }
+
+    // --- Helpers ---
+    function toggleConsole() {
+        const c = document.getElementById('console-container');
+        c.style.height = c.style.height === '30px' ? '120px' : '30px';
+    }
+
+    function clearConsole() {
+        document.getElementById('console').innerHTML = '';
+        VM.logStats = { info: 0, success: 0, error: 0 };
+        document.getElementById('log-stats').innerText = `i: 0 | ✅: 0 | ❌: 0`;
+        log("Console cleared", "info");
+    }
+
+    function toggleHint() {
+        const hb = document.getElementById('hint-box');
+        hb.classList.toggle('hidden');
+    }
+
+    function applyHint() {
+        const hintCode = `// SPDX-License-Identifier: MIT\npragma solidity ^0.8.26;\n\ncontract HelloNumber {\n    int private _number = 10;\n\n    function getNumber() public view returns (int) {\n        return _number;\n    }\n\n    function setNumber(int newNumber) public {\n        _number = newNumber;\n    }\n}`;
+        document.getElementById('code-editor').innerText = hintCode;
+        toast("정답 코드가 적용되었습니다", "info");
+        toggleHint();
+    }
+
+    function showHelp() {
+        alert("--- Keyboard Shortcuts ---\n1: Start Lab\nESC: Home\nCtrl+Enter: Compile\nCtrl+Shift+D: Deploy\nCtrl+`: Toggle Console\nC: Clear Console");
+    }
+
+    init();
+</script>
+
+</body>
+</html>
